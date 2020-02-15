@@ -9,9 +9,9 @@ import java.util.Queue;
 
 // =============================================================================
 /**
- * @file   DumbDataLinkLayer.java
- * @author Scott F. Kaplan (sfkaplan@cs.amherst.edu)
- * @date   August 2018, original September 2004
+ * @file   ParityDataLinkLayer.java
+ * @author Ikram Gabiyev
+ * @date   February 2020
  *
  * A data link layer that uses start/stop tags and byte packing to frame the
  * data, and that performs no error management.
