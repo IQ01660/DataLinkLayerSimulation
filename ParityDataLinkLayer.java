@@ -6,6 +6,8 @@ import java.util.LinkedList;
 import java.util.Queue;
 // =============================================================================
 
+import com.oracle.jrockit.jfr.EventDefinition;
+
 
 // =============================================================================
 /**
@@ -19,7 +21,7 @@ import java.util.Queue;
 public class ParityDataLinkLayer extends DataLinkLayer {
 // =============================================================================
 
-
+	private static int frameSize = 8;
 
     // =========================================================================
     /**
@@ -36,18 +38,16 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 		//while there is still some raw data
 		while (currentByteIndex < data.length) 
 		{
-			//storing the number of 1 bits (including all metadata)
+			//storing the number of 1 bits
 			int numOfOneBits = 0;
+
 			//add a start tag to framingData => will have all frames in it
 			framingData.add(startTag);
-
-			System.out.println("<start>");
-			//count 1 bits for startTag
-			numOfOneBits += Integer.bitCount((int)startTag);
+			//System.out.println("<start>");
 			
-			//look into the raw data twice
-			//this makes sure that we don't exceed 8 bytes in a frame
-			for(int j = 0; j < 2; j++)
+			//look into the raw data 8 times
+
+			for(int j = 0; j < frameSize; j++)
 			{
 				if (currentByteIndex < data.length) 
 				{
@@ -64,47 +64,45 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 					(currentByte == evenParityByte) ||
 					(currentByte == oddParityByte)) {
 
+						//add an escape tag before the special raw byte
 						framingData.add(escapeTag);
-						System.out.println("<esc>");
-						numOfOneBits += Integer.bitCount((int)escapeTag);
-
+						//System.out.println("<esc>");
 					}
 
 					// Add the data byte itself.
 					framingData.add(currentByte);
-					System.out.println("[raw]");
+					//System.out.println("[raw]");
 					//count and add 1 bits' count
 					numOfOneBits += Integer.bitCount((int)currentByte);
 
 					//incrementing the currentByteIndex
+					//if I took the raw data
 					currentByteIndex++;
 				}
 			}
+
 			//add the correct parity byte
-
-
-			// End with a stop tag.
-			framingData.add(stopTag);
-			System.out.println("<stop>");
-			//count and add 1 bits' count
-			numOfOneBits += Integer.bitCount((int)stopTag);
-
-			//if wee get even num of 1 bits
+			//if we get even num of 1 bits
 			if (numOfOneBits % 2 == 0)
 			{
 				framingData.add(evenParityByte);
-				System.out.println("<even parity>");
+				//System.out.println("<even par>");
 			}
+
 			// if the num of 1 bits is odd
 			else
 			{
 				framingData.add(oddParityByte);
-				System.out.println("<odd parity>");
+				//System.out.println("<odd par>");
 			}
 
+			// End with a stop tag.
+			framingData.add(stopTag);
+			//System.out.println("<stop>");
+			
 			/**
 			 * The Frame Structure
-			 * <start> --- <esc> --- <stop> <parity byte>
+			 * <start> --- <esc> --- <parity byte> <stop> 
 			 */
 		}
 
@@ -147,8 +145,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				i.remove();
 			} else {
 				startTagFound = true;
-				//count number of 1 bits in start tag
-				numOfOneBits += Integer.bitCount((int)startTag);
 			}
 		}
 
@@ -161,15 +157,13 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 		Queue<Byte> extractedBytes = new LinkedList<Byte>();
 		boolean       stopTagFound = false;
 
-		byte parityByte = 0b00000000; //will store the parityByte if found
+		boolean paritySatisfied = false;
 		while (!stopTagFound && i.hasNext()) {
 
 			// Grab the next byte.  If it is...
 			//   (a) An escape tag: Skip over it and grab what follows as
 			//                      literal data.
-			//   (b) A stop tag:    Remove all processed bytes from the buffer, go to   
-			//						the next element and take it as a parity byte and
-			//                      end extraction.
+			//   (b) A stop tag:    Remove all processed bytes from the buffer
 			//   (c) A start tag:   All that precedes is damaged, so remove it
 			//                      from the buffer and restart extraction.
 			//   (d) Otherwise:     Take it as literal data.
@@ -179,41 +173,48 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				if (i.hasNext()) {
 					current = i.next();
 					extractedBytes.add(current);
-					//count the number of 1 bits both in esc and current row data byte
-					numOfOneBits += Integer.bitCount((int)escapeTag);
+
+					//count the number of 1 bits in raw byte
 					numOfOneBits += Integer.bitCount((int)current);
 				} else {
 					// An escape was the last byte available, so this is not a
 					// complete frame.
 					return null;
 				}
+			} else if (current == evenParityByte || current == oddParityByte){
+
+				//if we get even num of 1 bits
+				if ( (numOfOneBits % 2 == 0) && (current == evenParityByte) )
+				{
+					paritySatisfied = true;
+				}
+				// if the num of 1 bits is odd
+				else if ( (numOfOneBits % 2 == 1) && (current == oddParityByte) )
+				{
+					paritySatisfied = true;
+				}
+
+				continue;
+
 			} else if (current == stopTag) {
-				//if there is a byte after stop tag
-				//take it as a parity byte
-				if (i.hasNext())
-				{
-					parityByte = i.next();
-				}
-				//if there is no parity byte
-				//then frame is incomplete
-				else 
-				{
-					return null;
-				}
+
 				cleanBufferUpTo(i); //including the parity byte
 				stopTagFound = true;
-				//count the number of 1 bits in stop tag
-				numOfOneBits += Integer.bitCount((int)stopTag);
+				
+
 			} else if (current == startTag) {
+
 				cleanBufferUpTo(i);
 				extractedBytes = new LinkedList<Byte>();
-				numOfOneBits += Integer.bitCount((int)startTag);
+				
 			} else {
 				extractedBytes.add(current);
-				numOfOneBits += Integer.bitCount((int)current);
+				numOfOneBits += Integer.bitCount((int) current);
 			}
 
 		}
+
+		
 
 		// If there is no stop tag, then the frame is incomplete.
 		if (!stopTagFound) {
@@ -240,34 +241,22 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 			j += 1;
 		}
 
-		// if the parity byte is satisfied
-		if ((parityByte == evenParityByte && numOfOneBits % 2 == 0) ||
-			(parityByte == oddParityByte  && numOfOneBits % 2 == 1))
+		if (stopTagFound == true && paritySatisfied == false)
 		{
-			return extractedData;
-		}
-		//if no parityByte found
-		else if (parityByte == 0b00000000)
-		{
-			return null;
-		}
-		//if parityByte has changed from 00000000
-		else
-		{
-			System.out.println("*************");
-			System.out.println("THE FOLLOWING DATA OR ITS METADATA GOT CORRUPTED");
+			System.out.println("Error occured");
+			System.out.println("***** Corrupted Frame *****");
 			for (int k = 0; k < extractedData.length; k++)
 			{
 				
-				System.out.println(" Char Form => "+ ((char) extractedData[k])
-				 + " | Byte Form => " + extractedData[k]);
-				
+				System.out.print((char) extractedData[k]);
 			}
-			System.out.println("*************");
+			System.out.println("");
+			System.out.println("***************************");
 
-			//CHANGEE THIS LATER
-			return extractedData;
+			return null;
 		}
+
+		return extractedData;
     } // processFrame ()
     // ===============================================================
 
