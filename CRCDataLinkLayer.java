@@ -1,6 +1,6 @@
 // =============================================================================
 // IMPORTS
-
+import java.lang.Math;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Queue;
@@ -42,10 +42,12 @@ public class CRCDataLinkLayer extends DataLinkLayer {
             LinkedList<Integer> frameBits = this.nextFrameBits(data, currentByteIndex);
 
             //return integer formed from frameBits
-            int rawDataInt = this.toDataInteger(frameBits);
+            int msgDataInt = this.toDataInteger(frameBits);
+
+
 
             //calculate the CRC checksum of the next frame message
-            //byte checksum = this.calculateChecksum(frameBits);
+            byte checksum = this.calculateChecksum(msgDataInt, frameBits.size());
 
 			//add a start tag to framingData => will have all frames in it
 			framingData.add(startTag);
@@ -229,14 +231,72 @@ public class CRCDataLinkLayer extends DataLinkLayer {
      * Note: frameBits.remove(0) gives the first bit
      * @return
      */
-    private byte calculateChecksum(LinkedList<Integer> frameBits)
+    private byte calculateChecksum(int msgDataInt, int msgSize)
     {
-        return 100;
+        //determine the number of shifts to be made in total
+        int shiftsMade = 0;
+
+        //while the gen fits into remaining message
+        while (shiftsMade < msgSize - numOfAppendedZeros)
+        {
+            
+            msgDataInt = msgDataInt ^ generator;
+
+            int to_be_shifted = numOfShifts(msgDataInt);
+
+            msgDataInt = msgDataInt >> to_be_shifted;
+
+            shiftsMade += to_be_shifted;
+        }
+        
+        
+
+        return (byte) msgDataInt;
     }
 
+    private int numOfShifts(int msg)
+    {
+        //converts the byte into a binary string
+        String binaryString = String.format("%8s", Integer.toBinaryString(msg & 0xFF)).replace(' ', '0');
+        char[] binaryArr = binaryString.toCharArray();
+        int toReturn = 0;
+
+        for (int k = binaryArr.length - 1; k >= 0; k--)
+        {
+            if (binaryArr[k] == '1')
+            {
+                break;
+            }
+            else
+            {
+                toReturn++;
+            }
+            
+        }
+        
+        
+        return toReturn;
+    }
+
+    /**
+     * @param frameBits the msg as in bits in a linked list
+     * @return an integer representation of the message flipped
+     */
     private int toDataInteger(LinkedList<Integer> frameBits)
     {
+        //the highest degree of message polynomial
+        int toReturn = 0;
 
+        int highestPower = frameBits.size() - 1;
+
+        while (frameBits.size() > 0)
+        {
+            int coefficient = frameBits.remove(frameBits.size() - 1);
+            toReturn += coefficient * ( (int) Math.pow(2, highestPower) );
+            highestPower--;
+        }
+
+        return toReturn;
     }
 
     /**
@@ -291,7 +351,10 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 
     //the size of the frame (only raw data considered)
     private final int frameSize = 8;
-    private final int generator = 0b100000111;
+
+    //flipped generator
+    private final int generator = 0b1100001;
+    private final int numOfAppendedZeros = 6;
 
     // ===============================================================
     // The start tag, stop tag, and the escape tag.
