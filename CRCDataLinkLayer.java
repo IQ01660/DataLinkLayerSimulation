@@ -45,9 +45,8 @@ public class CRCDataLinkLayer extends DataLinkLayer {
             int msgDataInt = this.toDataInteger(frameBits);
 
 
-
             //calculate the CRC checksum of the next frame message
-            byte checksum = this.calculateChecksum(msgDataInt, frameBits.size());
+            byte checksum = this.calculateChecksum(msgDataInt);
 
 			//add a start tag to framingData => will have all frames in it
 			framingData.add(startTag);
@@ -224,27 +223,35 @@ public class CRCDataLinkLayer extends DataLinkLayer {
     }
     // ===============================================================
 
+
+    //************************* */
+    //MY METHODS
+    //************************* */
+
+
+
     /**
      * Calculates the CRC checksum for the provided message
-     * The message is in the linked list in the form of bits
      * @param frameBits the bits of the next frame
-     * Note: frameBits.remove(0) gives the first bit
      * @return
      */
-    private byte calculateChecksum(int msgDataInt, int msgSize)
+    private byte calculateChecksum(int msgDataInt)
     {
         //determine the number of shifts to be made in total
         int shiftsMade = 0;
 
+        int myGenerator = appendZerosToGen(generator);
+
         //while the gen fits into remaining message
-        while (shiftsMade < msgSize - numOfAppendedZeros)
+        while (shiftsMade <= messageSize - numOfAppendedZeros - 1)
         {
-            
-            msgDataInt = msgDataInt ^ generator;
+            int prevMsgData = msgDataInt;
 
-            int to_be_shifted = numOfShifts(msgDataInt);
+            msgDataInt = msgDataInt ^ myGenerator;
 
-            msgDataInt = msgDataInt >> to_be_shifted;
+            int to_be_shifted = numOfShifts(msgDataInt, prevMsgData);
+
+            myGenerator = myGenerator >> to_be_shifted;
 
             shiftsMade += to_be_shifted;
         }
@@ -254,36 +261,64 @@ public class CRCDataLinkLayer extends DataLinkLayer {
         return (byte) msgDataInt;
     }
 
-    private int numOfShifts(int msg)
+    /**
+     * Calculates the number of shifts to be made at each step
+     * @param msg
+     * @param prevMsg
+     * @return
+     */
+    private int numOfShifts(int msg, int prevMsg)
     {
-        //converts the byte into a binary string
-        String binaryString = String.format("%8s", Integer.toBinaryString(msg & 0xFF)).replace(' ', '0');
-        char[] binaryArr = binaryString.toCharArray();
+        String binaryString = Integer.toBinaryString(msg);
+        String prevBinaryString = Integer.toBinaryString(prevMsg);
+        return prevBinaryString.length() - binaryString.length();
+    }
+
+    /**
+     * Appends zeros to the end
+     * of generator for XOR-ing
+     * @param init_gen
+     * @return
+     */
+    private int appendZerosToGen(int init_gen)
+    {
+        //the highest degree of message polynomial
         int toReturn = 0;
 
-        for (int k = binaryArr.length - 1; k >= 0; k--)
+        int highestPower = numOfAppendedZeros;
+
+        String init_binary_gen = Integer.toBinaryString(init_gen);
+
+        int i = 0;
+
+        int coefficient = 0;
+        while (i < numOfAppendedZeros + 1)
         {
-            if (binaryArr[k] == '1')
+            if (init_binary_gen.charAt(i) == '1')
             {
-                break;
+                coefficient = 1;
             }
-            else
+            if (init_binary_gen.charAt(i) == '0')
             {
-                toReturn++;
+                coefficient = 0;
             }
             
+            toReturn += coefficient * ( (int) Math.pow(2, highestPower + messageSize - numOfAppendedZeros - 1) );
+            highestPower--;
         }
-        
-        
+
         return toReturn;
     }
 
     /**
      * @param frameBits the msg as in bits in a linked list
-     * @return an integer representation of the message flipped
+     * @return an integer representation of the message with ZEROS APPEENDED
      */
     private int toDataInteger(LinkedList<Integer> frameBits)
     {
+        //save the size of future message with zeros appended
+        this.messageSize = frameBits.size() + numOfAppendedZeros;
+
         //the highest degree of message polynomial
         int toReturn = 0;
 
@@ -291,8 +326,8 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 
         while (frameBits.size() > 0)
         {
-            int coefficient = frameBits.remove(frameBits.size() - 1);
-            toReturn += coefficient * ( (int) Math.pow(2, highestPower) );
+            int coefficient = frameBits.remove();
+            toReturn += coefficient * ( (int) Math.pow(2, highestPower + numOfAppendedZeros) );
             highestPower--;
         }
 
@@ -348,12 +383,14 @@ public class CRCDataLinkLayer extends DataLinkLayer {
     // DATA MEMBERS
     // ===============================================================
 
+    //message size with zeros appended
+    private int messageSize = 0;
 
     //the size of the frame (only raw data considered)
     private final int frameSize = 8;
 
     //flipped generator
-    private final int generator = 0b1100001;
+    private final int generator = 0b1000011;
     private final int numOfAppendedZeros = 6;
 
     // ===============================================================
