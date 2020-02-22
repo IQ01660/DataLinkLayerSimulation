@@ -18,11 +18,10 @@ import java.util.Queue;
  * A data link layer that uses start/stop tags and byte packing to frame the
  * data, and that performs parity byte error management.
  */
-public class ParityDataLinkLayer extends DataLinkLayer {
+public class CRCDataLinkLayer extends DataLinkLayer {
 // =============================================================================
 
-	private static int frameSize = 8;
-
+    
     // =========================================================================
     /**
      * Embed a raw sequence of bytes into a framed sequence.
@@ -38,12 +37,19 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 		//while there is still some raw data
 		while (currentByteIndex < data.length) 
 		{
-			//storing the number of 1 bits
-			int numOfOneBits = 0;
+
+            //return the next frame's raw data in bits as a linked list
+            LinkedList<Integer> frameBits = this.nextFrameBits(data, currentByteIndex);
+
+            //return integer formed from frameBits
+            int rawDataInt = this.toDataInteger(frameBits);
+
+            //calculate the CRC checksum of the next frame message
+            //byte checksum = this.calculateChecksum(frameBits);
 
 			//add a start tag to framingData => will have all frames in it
 			framingData.add(startTag);
-			//System.out.println("<start>");
+			System.out.println("<start>");
 			
 			//look into the raw data 8 times
 
@@ -53,27 +59,22 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				{
 					// If the current data byte is itself a metadata tag, then precede
 					// it with an escape tag.
-					//	consider parity bytes as metadata
 					byte currentByte = data[currentByteIndex];
 					
 					
 					
 					if ((currentByte == startTag) ||
 					(currentByte == stopTag) ||
-					(currentByte == escapeTag) ||
-					(currentByte == evenParityByte) ||
-					(currentByte == oddParityByte)) {
+					(currentByte == escapeTag)) {
 
 						//add an escape tag before the special raw byte
 						framingData.add(escapeTag);
-						//System.out.println("<esc>");
+						System.out.println("<esc>");
 					}
 
 					// Add the data byte itself.
 					framingData.add(currentByte);
-					//System.out.println("[raw]");
-					//count and add 1 bits' count
-					numOfOneBits += Integer.bitCount((int)currentByte);
+					System.out.println("[raw]");
 
 					//incrementing the currentByteIndex
 					//if I took the raw data
@@ -81,28 +82,13 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				}
 			}
 
-			//add the correct parity byte
-			//if we get even num of 1 bits
-			if (numOfOneBits % 2 == 0)
-			{
-				framingData.add(evenParityByte);
-				//System.out.println("<even par>");
-			}
-
-			// if the num of 1 bits is odd
-			else
-			{
-				framingData.add(oddParityByte);
-				//System.out.println("<odd par>");
-			}
-
 			// End with a stop tag.
 			framingData.add(stopTag);
-			//System.out.println("<stop>");
+			System.out.println("<stop>");
 			
 			/**
 			 * The Frame Structure
-			 * <start> --- <esc> --- <parity byte> <stop> 
+			 * <start> --- <esc> --- <stop> 
 			 */
 		}
 
@@ -133,9 +119,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
      */
     protected byte[] processFrame () {
 
-		//introduce the 1 bit count
-		int numOfOneBits = 0;
-
 		// Search for a start tag.  Discard anything prior to it.
 		boolean        startTagFound = false;
 		Iterator<Byte>             i = byteBuffer.iterator();
@@ -157,7 +140,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 		Queue<Byte> extractedBytes = new LinkedList<Byte>();
 		boolean       stopTagFound = false;
 
-		boolean paritySatisfied = false;
 		while (!stopTagFound && i.hasNext()) {
 
 			// Grab the next byte.  If it is...
@@ -173,29 +155,11 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				if (i.hasNext()) {
 					current = i.next();
 					extractedBytes.add(current);
-
-					//count the number of 1 bits in raw byte
-					numOfOneBits += Integer.bitCount((int)current);
 				} else {
 					// An escape was the last byte available, so this is not a
 					// complete frame.
 					return null;
 				}
-			} else if (current == evenParityByte || current == oddParityByte){
-
-				//if we get even num of 1 bits
-				if ( (numOfOneBits % 2 == 0) && (current == evenParityByte) )
-				{
-					paritySatisfied = true;
-				}
-				// if the num of 1 bits is odd
-				else if ( (numOfOneBits % 2 == 1) && (current == oddParityByte) )
-				{
-					paritySatisfied = true;
-				}
-
-				continue;
-
 			} else if (current == stopTag) {
 
 				cleanBufferUpTo(i); //including the parity byte
@@ -209,7 +173,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 				
 			} else {
 				extractedBytes.add(current);
-				numOfOneBits += Integer.bitCount((int) current);
 			}
 
 		}
@@ -241,23 +204,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 			j += 1;
 		}
 
-		if (stopTagFound == true && paritySatisfied == false)
-		{
-			System.out.println("");
-			System.out.println("Error occured");
-			System.out.println("***** Corrupted Frame *****");
-			for (int k = 0; k < extractedData.length; k++)
-			{
-				
-				System.out.print((char) extractedData[k]);
-			}
-			System.out.println("");
-			System.out.println("***************************");
-			System.out.println("");
-
-			return null;
-		}
-
 		return extractedData;
     } // processFrame ()
     // ===============================================================
@@ -276,13 +222,76 @@ public class ParityDataLinkLayer extends DataLinkLayer {
     }
     // ===============================================================
 
+    /**
+     * Calculates the CRC checksum for the provided message
+     * The message is in the linked list in the form of bits
+     * @param frameBits the bits of the next frame
+     * Note: frameBits.remove(0) gives the first bit
+     * @return
+     */
+    private byte calculateChecksum(LinkedList<Integer> frameBits)
+    {
+        return 100;
+    }
 
+    private int toDataInteger(LinkedList<Integer> frameBits)
+    {
+
+    }
+
+    /**
+     * Takes the next frame to be considered
+     * And return its raw data in a sequence of bits 
+     * 
+     * @param data the array of bytes with raw data
+     * @param firstIndex the index of the first byte in the upcoming frame
+     * @return
+     */
+    private LinkedList<Integer> nextFrameBits(byte[] data, int firstIndex)
+    {
+        //this will store added bits
+        LinkedList<Integer> toReturn = new LinkedList<>();
+
+        //set the current index of the byte considered
+        //to the first index of the frame
+        int currentByteIndex = firstIndex;
+
+        for(int j = 0; j < frameSize; j++)
+		{
+            if (currentByteIndex < data.length) 
+            {
+
+                //stores the current byte coonsidered
+                byte currentByte = data[currentByteIndex];
+
+                //converts the byte into a binary string
+                String binaryString = String.format("%8s", Integer.toBinaryString(currentByte & 0xFF)).replace(' ', '0');
+
+                //converting the binary string into a char array
+                char[] dataBits = binaryString.toCharArray();
+
+                //goes through the binary string and adds bits to the LinkedList
+                for (int charIndex = 0; charIndex < dataBits.length; charIndex++)
+                {
+                    toReturn.add(Character.getNumericValue(dataBits[charIndex]));
+                }
+
+                currentByteIndex++;
+            }
+		}
+
+
+        return toReturn;
+    }
 
     // ===============================================================
     // DATA MEMBERS
     // ===============================================================
 
 
+    //the size of the frame (only raw data considered)
+    private final int frameSize = 8;
+    private final int generator = 0b100000111;
 
     // ===============================================================
     // The start tag, stop tag, and the escape tag.
@@ -290,9 +299,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
     private final byte stopTag   = (byte)'}';
 	private final byte escapeTag = (byte)'\\';
 	
-	//The parity bytes
-	private final byte oddParityByte = 0b01010101;
-	private final byte evenParityByte = 0b00101010;
     // ===============================================================
 
 
