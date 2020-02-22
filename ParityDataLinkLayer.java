@@ -248,7 +248,6 @@ public class ParityDataLinkLayer extends DataLinkLayer {
 			System.out.println("***** Corrupted Frame *****");
 			for (int k = 0; k < extractedData.length; k++)
 			{
-				
 				System.out.print((char) extractedData[k]);
 			}
 			System.out.println("");

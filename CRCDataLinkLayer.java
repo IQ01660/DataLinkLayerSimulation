@@ -1,6 +1,9 @@
+
 // =============================================================================
 // IMPORTS
 import java.lang.Math;
+import java.rmi.RemoteException;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Queue;
@@ -37,20 +40,20 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 		//while there is still some raw data
 		while (currentByteIndex < data.length) 
 		{
-
+            ArrayList<Byte> justRawFrame = new ArrayList<>();
             //return the next frame's raw data in bits as a linked list
-            LinkedList<Integer> frameBits = this.nextFrameBits(data, currentByteIndex);
+            //LinkedList<Integer> frameBits = this.nextFrameBits(data, currentByteIndex);
 
             //return integer formed from frameBits
-            int msgDataInt = this.toDataInteger(frameBits);
+            //int msgDataInt = this.toDataInteger(frameBits);
 
 
             //calculate the CRC checksum of the next frame message
-            byte checksum = this.calculateChecksum(msgDataInt);
-
+            //byte checksum = this.calculateChecksum(msgDataInt);
+  
 			//add a start tag to framingData => will have all frames in it
 			framingData.add(startTag);
-			System.out.println("<start>");
+			//System.out.println("<start>");
 			
 			//look into the raw data 8 times
 
@@ -66,26 +69,32 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 					
 					if ((currentByte == startTag) ||
 					(currentByte == stopTag) ||
-					(currentByte == escapeTag)) {
+                    (currentByte == escapeTag)){
 
 						//add an escape tag before the special raw byte
 						framingData.add(escapeTag);
-						System.out.println("<esc>");
+						// System.out.println("<esc>");
 					}
 
 					// Add the data byte itself.
-					framingData.add(currentByte);
-					System.out.println("[raw]");
+                    framingData.add(currentByte);
+                    justRawFrame.add(currentByte);
+					//System.out.println("[raw]");
 
 					//incrementing the currentByteIndex
 					//if I took the raw data
 					currentByteIndex++;
 				}
-			}
+            }
+            
+            ArrayList<Integer> dataBits = nextFrameBits(justRawFrame);
+            int checksum = calculateRemainder(dataBits);
+            // Add the checksum
+            framingData.add((byte)checksum);
 
 			// End with a stop tag.
 			framingData.add(stopTag);
-			System.out.println("<stop>");
+			//System.out.println("<stop>");
 			
 			/**
 			 * The Frame Structure
@@ -139,8 +148,9 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 		
 		// Try to extract data while waiting for an unescaped stop tag.
 		Queue<Byte> extractedBytes = new LinkedList<Byte>();
-		boolean       stopTagFound = false;
+        boolean       stopTagFound = false;
 
+        //tells us whether checksum is satisfied
 		while (!stopTagFound && i.hasNext()) {
 
 			// Grab the next byte.  If it is...
@@ -148,8 +158,8 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 			//                      literal data.
 			//   (b) A stop tag:    Remove all processed bytes from the buffer
 			//   (c) A start tag:   All that precedes is damaged, so remove it
-			//                      from the buffer and restart extraction.
-			//   (d) Otherwise:     Take it as literal data.
+            //                      from the buffer and restart extraction.
+			//   (d) Otherwise:     Take it as literal data. And assume it's a checksum (temp)
 			byte current = i.next();
 			
 			if (current == escapeTag) {
@@ -173,7 +183,8 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 				extractedBytes = new LinkedList<Byte>();
 				
 			} else {
-				extractedBytes.add(current);
+                extractedBytes.add(current);
+                //assume each byte is a checksum
 			}
 
 		}
@@ -185,7 +196,10 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 			return null;
 		}
 
-		
+        ArrayList<Integer> receivedBits_with_checksum = nextFrameBits(extractedBytes);
+        int remainder = calculateRemainder(receivedBits_with_checksum);
+        System.out.println("HEY "+ remainder);
+        
 		
 		// Convert to the desired byte array.
 		if (debug) {
@@ -203,9 +217,27 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 						extractedData[j]);
 				}
 			j += 1;
-		}
+        }
+        
+        if (remainder != 0)
+        {
+            System.out.println("");
+			System.out.println("Error occured");
+			System.out.println("***** Corrupted Frame *****");
+			for (int k = 0; k < extractedData.length; k++)
+			{
+				System.out.print((char) extractedData[k]);
+			}
+			System.out.println("");
+			System.out.println("***************************");
+			System.out.println("");
 
-		return extractedData;
+			return null;
+        }
+
+        return extractedData;
+
+
     } // processFrame ()
     // ===============================================================
 
@@ -229,135 +261,53 @@ public class CRCDataLinkLayer extends DataLinkLayer {
     //************************* */
 
 
+    public boolean isDivisible(int value, int gen_length){
+        return ((value & (1<<gen_length)) != 0);
+    }
 
+    //Returns int but just do (byte)
+    public static int injectNextBit(int receptor, int donor){
+        return ((receptor<<1)|donor);
+    }
+        
+    public int calculateRemainder(ArrayList<Integer> dataBits) {
+        
+        int toReturn = 0;
+        while (!dataBits.isEmpty()) {
+            int nextBit = dataBits.remove(0);
+            
+            toReturn = injectNextBit(toReturn, nextBit);
+
+            if (isDivisible(toReturn, numOfAppendedZeros)) {
+                toReturn = toReturn ^ generator;
+            }
+        }
+        return toReturn;
+    }
     /**
      * Calculates the CRC checksum for the provided message
      * @param frameBits the bits of the next frame
      * @return
      */
-    private byte calculateChecksum(int msgDataInt)
-    {
-        //determine the number of shifts to be made in total
-        int shiftsMade = 0;
-
-        int myGenerator = appendZerosToGen(generator);
-
-        //while the gen fits into remaining message
-        while (shiftsMade <= messageSize - numOfAppendedZeros - 1)
-        {
-            int prevMsgData = msgDataInt;
-
-            msgDataInt = msgDataInt ^ myGenerator;
-
-            int to_be_shifted = numOfShifts(msgDataInt, prevMsgData);
-
-            myGenerator = myGenerator >> to_be_shifted;
-
-            shiftsMade += to_be_shifted;
-        }
-        
-        
-
-        return (byte) msgDataInt;
-    }
-
-    /**
-     * Calculates the number of shifts to be made at each step
-     * @param msg
-     * @param prevMsg
-     * @return
-     */
-    private int numOfShifts(int msg, int prevMsg)
-    {
-        String binaryString = Integer.toBinaryString(msg);
-        String prevBinaryString = Integer.toBinaryString(prevMsg);
-        return prevBinaryString.length() - binaryString.length();
-    }
-
-    /**
-     * Appends zeros to the end
-     * of generator for XOR-ing
-     * @param init_gen
-     * @return
-     */
-    private int appendZerosToGen(int init_gen)
-    {
-        //the highest degree of message polynomial
-        int toReturn = 0;
-
-        int highestPower = numOfAppendedZeros;
-
-        String init_binary_gen = Integer.toBinaryString(init_gen);
-
-        int i = 0;
-
-        int coefficient = 0;
-        while (i < numOfAppendedZeros + 1)
-        {
-            if (init_binary_gen.charAt(i) == '1')
-            {
-                coefficient = 1;
-            }
-            if (init_binary_gen.charAt(i) == '0')
-            {
-                coefficient = 0;
-            }
-            
-            toReturn += coefficient * ( (int) Math.pow(2, highestPower + messageSize - numOfAppendedZeros - 1) );
-            highestPower--;
-        }
-
-        return toReturn;
-    }
-
-    /**
-     * @param frameBits the msg as in bits in a linked list
-     * @return an integer representation of the message with ZEROS APPEENDED
-     */
-    private int toDataInteger(LinkedList<Integer> frameBits)
-    {
-        //save the size of future message with zeros appended
-        this.messageSize = frameBits.size() + numOfAppendedZeros;
-
-        //the highest degree of message polynomial
-        int toReturn = 0;
-
-        int highestPower = frameBits.size() - 1;
-
-        while (frameBits.size() > 0)
-        {
-            int coefficient = frameBits.remove();
-            toReturn += coefficient * ( (int) Math.pow(2, highestPower + numOfAppendedZeros) );
-            highestPower--;
-        }
-
-        return toReturn;
-    }
 
     /**
      * Takes the next frame to be considered
      * And return its raw data in a sequence of bits 
+     * The zeros are APPENDED
      * 
      * @param data the array of bytes with raw data
      * @param firstIndex the index of the first byte in the upcoming frame
      * @return
      */
-    private LinkedList<Integer> nextFrameBits(byte[] data, int firstIndex)
+    private ArrayList<Integer> nextFrameBits(ArrayList<Byte> data)
     {
         //this will store added bits
-        LinkedList<Integer> toReturn = new LinkedList<>();
+        ArrayList<Integer> toReturn = new ArrayList<>();
 
-        //set the current index of the byte considered
-        //to the first index of the frame
-        int currentByteIndex = firstIndex;
-
-        for(int j = 0; j < frameSize; j++)
+        for(int j = 0; j < data.size(); j++)
 		{
-            if (currentByteIndex < data.length) 
-            {
-
                 //stores the current byte coonsidered
-                byte currentByte = data[currentByteIndex];
+                byte currentByte = data.get(j);
 
                 //converts the byte into a binary string
                 String binaryString = String.format("%8s", Integer.toBinaryString(currentByte & 0xFF)).replace(' ', '0');
@@ -371,10 +321,43 @@ public class CRCDataLinkLayer extends DataLinkLayer {
                     toReturn.add(Character.getNumericValue(dataBits[charIndex]));
                 }
 
-                currentByteIndex++;
-            }
+                for (int i = 0; i < numOfAppendedZeros; i++)
+                {
+                    toReturn.add(0);
+                }
 		}
+        return toReturn;
+    }
+    private ArrayList<Integer> nextFrameBits(Queue<Byte> data)
+    {
+        //this will store added bits
+        ArrayList<Integer> toReturn = new ArrayList<>();
 
+        Queue<Byte> holdOnQueue = new LinkedList<>();
+
+
+        while (!data.isEmpty())
+		{
+                //stores the current byte coonsidered
+                byte currentByte = data.remove();
+                holdOnQueue.add(currentByte);
+
+                //converts the byte into a binary string
+                String binaryString = String.format("%8s", Integer.toBinaryString(currentByte & 0xFF)).replace(' ', '0');
+
+                //converting the binary string into a char array
+                char[] dataBits = binaryString.toCharArray();
+
+                //goes through the binary string and adds bits to the LinkedList
+                for (int charIndex = 0; charIndex < dataBits.length; charIndex++)
+                {
+                    toReturn.add(Character.getNumericValue(dataBits[charIndex]));
+                }
+                
+                
+        }
+        //give back the whole queue
+        data = holdOnQueue;
 
         return toReturn;
     }
@@ -383,22 +366,19 @@ public class CRCDataLinkLayer extends DataLinkLayer {
     // DATA MEMBERS
     // ===============================================================
 
-    //message size with zeros appended
-    private int messageSize = 0;
-
     //the size of the frame (only raw data considered)
     private final int frameSize = 8;
 
     //flipped generator
-    private final int generator = 0b1000011;
-    private final int numOfAppendedZeros = 6;
+    private final int generator = 0b111010101;
+    private final int numOfAppendedZeros = 8;
 
     // ===============================================================
     // The start tag, stop tag, and the escape tag.
     private final byte startTag  = (byte)'{';
     private final byte stopTag   = (byte)'}';
-	private final byte escapeTag = (byte)'\\';
-	
+    private final byte escapeTag = (byte)'\\';
+    
     // ===============================================================
 
 
