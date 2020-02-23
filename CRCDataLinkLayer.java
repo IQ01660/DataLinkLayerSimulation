@@ -90,8 +90,8 @@ public class CRCDataLinkLayer extends DataLinkLayer {
             ArrayList<Integer> dataBits = nextFrameBits(justRawFrame);
             int checksum = calculateRemainder(dataBits);
             // Add the checksum
-            framingData.add((byte)checksum);
-
+            framingData.add((byte) checksum);
+          
 			// End with a stop tag.
 			framingData.add(stopTag);
 			//System.out.println("<stop>");
@@ -180,11 +180,14 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 			} else if (current == startTag) {
 
 				cleanBufferUpTo(i);
-				extractedBytes = new LinkedList<Byte>();
+                extractedBytes = new LinkedList<Byte>();
+
+                System.out.println("******************");
+                System.out.println("Frames Are Damaged");
+                System.out.println("******************");
 				
 			} else {
                 extractedBytes.add(current);
-                //assume each byte is a checksum
 			}
 
 		}
@@ -196,10 +199,13 @@ public class CRCDataLinkLayer extends DataLinkLayer {
 			return null;
 		}
 
-        ArrayList<Integer> receivedBits_with_checksum = nextFrameBits(extractedBytes);
-        int remainder = calculateRemainder(receivedBits_with_checksum);
-        System.out.println("HEY "+ remainder);
         
+
+        ArrayList<Integer> receivedBits_with_checksum = nextFrameBits(extractedBytes);
+        
+        int remainder = calculateRemainder(receivedBits_with_checksum);
+
+        extractLastQueueElt(extractedBytes);
 		
 		// Convert to the desired byte array.
 		if (debug) {
@@ -241,7 +247,20 @@ public class CRCDataLinkLayer extends DataLinkLayer {
     } // processFrame ()
     // ===============================================================
 
-
+    private void extractLastQueueElt(Queue<Byte> data) 
+    {
+        ArrayList<Byte> temp = new ArrayList<>();
+        while (!data.isEmpty())
+        {
+            temp.add(data.remove());
+        }
+        
+        temp.remove(temp.size() - 1);
+        while (!temp.isEmpty())
+        {
+            data.add(temp.remove(0));
+        }
+    }
 
     // ===============================================================
     private void cleanBufferUpTo (Iterator<Byte> end) {
@@ -320,12 +339,11 @@ public class CRCDataLinkLayer extends DataLinkLayer {
                 {
                     toReturn.add(Character.getNumericValue(dataBits[charIndex]));
                 }
-
-                for (int i = 0; i < numOfAppendedZeros; i++)
-                {
-                    toReturn.add(0);
-                }
-		}
+        }
+        for (int i = 0; i < numOfAppendedZeros; i++)
+        {
+            toReturn.add(0);
+        }
         return toReturn;
     }
     private ArrayList<Integer> nextFrameBits(Queue<Byte> data)
@@ -336,12 +354,13 @@ public class CRCDataLinkLayer extends DataLinkLayer {
         Queue<Byte> holdOnQueue = new LinkedList<>();
 
 
-        while (!data.isEmpty())
+        while (data.size() != 0)
 		{
                 //stores the current byte coonsidered
                 byte currentByte = data.remove();
                 holdOnQueue.add(currentByte);
 
+                
                 //converts the byte into a binary string
                 String binaryString = String.format("%8s", Integer.toBinaryString(currentByte & 0xFF)).replace(' ', '0');
 
@@ -353,11 +372,12 @@ public class CRCDataLinkLayer extends DataLinkLayer {
                 {
                     toReturn.add(Character.getNumericValue(dataBits[charIndex]));
                 }
-                
-                
         }
         //give back the whole queue
-        data = holdOnQueue;
+        while (!holdOnQueue.isEmpty())
+        {
+            data.add(holdOnQueue.remove());
+        }
 
         return toReturn;
     }
